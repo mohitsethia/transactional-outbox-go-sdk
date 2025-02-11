@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: transactional_outbox_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: rootpassword
+      POSTGRES_DB: transactional_outbox
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - outbox-network
+
+  nats:
+    image: nats:latest
+    container_name: transactional_outbox_nats
+    restart: always
+    ports:
+      - "4222:6222"
+    networks:
+      - outbox-network
+
+  app:
+    build: .
+    container_name: transactional_outbox_app
+    depends_on:
+      - postgres
+      - nats
+    environment:
+      DATABASE_URL: "postgres://postgres:rootpassword@postgres:5432/transactional_outbox?sslmode=disable"
+    ports:
+      - "8080:8080"
+    networks:
+      - outbox-network
+    command: >
+      sh -c "
+        /wait-for-it.sh postgres:5432 --timeout=15 --strict -- echo 'PostgreSQL is ready!' &&
+        /wait-for-it.sh nats:4222 --timeout=15 --strict -- echo 'NATS is ready!' &&
+        ./main
+      "
+
+networks:
+  outbox-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
